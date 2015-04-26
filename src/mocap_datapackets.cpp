@@ -78,6 +78,19 @@ void MoCapDataFormat::seek(size_t count)
   length -= count;
 }
 
+bool DecodeTimecode(unsigned int inTimecode, unsigned int inTimecodeSubframe, int* hour, int* minute, int* second, int* frame, int* subframe)
+{
+  bool bValid = true;
+
+  *hour = (inTimecode>>24)&255;
+  *minute = (inTimecode>>16)&255;
+  *second = (inTimecode>>8)&255;
+  *frame = inTimecode&255;
+  *subframe = inTimecodeSubframe;
+
+  return bValid;
+}
+
 void MoCapDataFormat::parse()
 {
   seek(4); // skip 4-bytes. Header and size.
@@ -130,6 +143,7 @@ void MoCapDataFormat::parse()
   ROS_DEBUG("Number of rigid bodies: %d", model.numRigidBodies);
 
   model.rigidBodies = new RigidBody[model.numRigidBodies];
+  ROS_DEBUG("model.numRigidBodies: %d", model.numRigidBodies);
   for (int m = 0; m < model.numRigidBodies; m++)
   {
     // read id, position and orientation of each rigid body
@@ -174,12 +188,69 @@ void MoCapDataFormat::parse()
     seek(sizeof(short));
   }
 
-  // TODO: read skeletons
+  // Skip skeletons
   int numSkeletons = 0;
   read_and_seek(numSkeletons);
+  ROS_DEBUG("numSkeletons: %d", numSkeletons);
+  for (int i=0; i < numSkeletons; i++)
+  {
+    // skeleton id
+    seek(4);
+    // # of rigid bodies (bones) in skeleton
+    int numRigidBodies = 0;
+    read_and_seek(numRigidBodies);
+    for (int j=0; j < numRigidBodies; j++)
+    {
+      // rigid body pos/ori
+      seek(32);
+      // associated marker positions
+      int nRigidMarkers = 0;
+      read_and_seek(nRigidMarkers);
+      // associated marker positions
+      seek(nRigidMarkers*3*sizeof(float));
+      // associated marker IDs
+      seek(nRigidMarkers*sizeof(int));
+      // associated marker sizes
+      seek(nRigidMarkers*sizeof(float));
+      // mean marker error
+      seek(sizeof(float));
+    }
+  }
+  
+  // Skip labeled markers
+  int nLabeledMarkers = 0;
+  read_and_seek(nLabeledMarkers);
+  ROS_DEBUG("nLabeledMarkers: %d", nLabeledMarkers);
+  for (int j=0; j < nLabeledMarkers; j++)
+  {
+    // id
+    seek(4);
+    // x, y , z and size
+    float x, y, z, labelSize;
+    read_and_seek(x);
+    read_and_seek(y);
+    read_and_seek(z);
+    read_and_seek(labelSize);
+    ROS_DEBUG("pos: [%3.4f,%3.4f,%3.4f], size: [%3.4f]", x, y, z, labelSize);
+    // marker params
+    seek(2);
+  }
 
-  // get latency
+  // latency
   read_and_seek(model.latency);
+  ROS_DEBUG("Latency: [%3.4f]", model.latency);
+  
+  // timecode
+  unsigned int timecode = 0;
+  read_and_seek(timecode);
+  unsigned int timecodeSub = 0;
+  read_and_seek(timecodeSub);
+  int hour, minute, second, frame, subframe;
+  DecodeTimecode(timecode, timecodeSub, &hour, &minute, &second, &frame, &subframe);
+  ROS_DEBUG("Timecode: [%2d:%2d:%2d:%2d.%d]", hour, minute, second, frame, subframe);
+  
+  // timestamp
+  double timestamp = 0.0f;
+  read_and_seek(timestamp);
+  ROS_INFO("timestamp: [%3.4f]", timestamp);
 }
-
-
